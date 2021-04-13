@@ -17,6 +17,10 @@ import (
 )
 
 // runPersister() implements the persister task.
+//  merge完通知持久化
+//  将mid的数据搬移到base
+//  base数据写入到store
+//  同时base的数据搬移到clean中
 func (m *collection) runPersister() {
 	defer func() {
 		close(m.donePersisterCh)
@@ -53,6 +57,7 @@ OUTER:
 				m.NotifyMerger("from-persister", false)
 			}
 
+			// 阻塞持久化线程
 			atomic.AddUint64(&m.stats.TotPersisterWaitBeg, 1)
 			m.stackDirtyBaseCond.Wait()
 			atomic.AddUint64(&m.stats.TotPersisterWaitEnd, 1)
@@ -70,6 +75,7 @@ OUTER:
 
 		atomic.AddUint64(&m.stats.TotPersisterLowerLevelUpdateBeg, 1)
 
+		// 持久化存储base的数据
 		llssNext, err := m.options.LowerLevelUpdate(stackDirtyBase)
 		if err != nil {
 			atomic.AddUint64(&m.stats.TotPersisterLowerLevelUpdateErr, 1)
@@ -86,11 +92,14 @@ OUTER:
 		var stackDirtyBasePrev *segmentStack
 		var stackCleanPrev *segmentStack
 
+		// 最核心的这段话
+
 		m.m.Lock()
 
 		m.invalidateLatestSnapshotLOCKED()
 
 		stackCleanPrev = m.stackClean
+		// 配置开启了持久化缓存的话，就把base->clean中
 		if m.options.CachePersisted {
 			m.stackClean = m.stackDirtyBase
 		} else {

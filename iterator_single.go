@@ -20,6 +20,7 @@ import (
 // case optimization when there's only a single segment to iterate and
 // there's no lower-level iterator.  In contrast to the main iterator
 // implementation, iteratorSingle doesn't have any heap operations.
+// 只有单个segment时，就可以直接遍历了，而不需要维护堆
 type iteratorSingle struct {
 	s  *segment
 	sc SegmentCursor

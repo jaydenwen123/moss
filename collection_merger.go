@@ -46,6 +46,9 @@ func (m *collection) NotifyMerger(kind string, synchronous bool) error {
 // ------------------------------------------------------
 
 // runMerger() implements the background merger task.
+// 主要实现将top中的segment搬移到mid中
+// 同时新建一个topStack
+// 将搬移到mid中的segments进行合并
 func (m *collection) runMerger() {
 	defer func() {
 		close(m.doneMergerCh)
@@ -55,6 +58,7 @@ func (m *collection) runMerger() {
 
 	maxPreMergerBatches := m.options.MaxPreMergerBatches
 	if maxPreMergerBatches <= 0 {
+		// 10
 		maxPreMergerBatches =
 			DefaultCollectionOptions.MaxPreMergerBatches
 	}
@@ -97,8 +101,9 @@ OUTER:
 		var stackDirtyTopPrev *segmentStack
 		var stackDirtyMidPrev *segmentStack
 		var stackDirtyBase *segmentStack
-
+		// 搬移
 		stackDirtyMid, _, _, _, _ :=
+		// 不要clean和base的segment
 			m.snapshot(snapshotSkipClean|snapshotSkipDirtyBase,
 				func(ss *segmentStack) {
 					m.invalidateLatestSnapshotLOCKED()
@@ -109,7 +114,7 @@ OUTER:
 
 					stackDirtyTopPrev = m.stackDirtyTop
 					m.stackDirtyTop = nil
-
+					// 将合并后的数据放给mid
 					stackDirtyMidPrev = m.stackDirtyMid
 					m.stackDirtyMid = ss
 
@@ -120,7 +125,7 @@ OUTER:
 
 						stackDirtyBase.addRef()
 					}
-
+					// 唤醒了所有等待top空间的线程
 					// Awake writers waiting for space in stackDirtyTop.
 					m.stackDirtyTopCond.Broadcast()
 				},
@@ -133,7 +138,7 @@ OUTER:
 		// Merge multiple stackDirtyMid layers.
 
 		startTime := time.Now()
-
+		// 进行merge
 		mergerWasOk := m.mergerMain(stackDirtyMid, stackDirtyBase, mergeAll)
 		if !mergerWasOk {
 			continue OUTER
@@ -144,7 +149,7 @@ OUTER:
 
 		// ---------------------------------------------
 		// Notify persister.
-
+		// merge完成后，通知持久化
 		m.mergerNotifyPersister()
 
 		// ---------------------------------------------
@@ -210,6 +215,7 @@ func (m *collection) mergerWaitForWork(pings []ping) (
 
 	m.m.Lock()
 
+	// 初始化了一个channel，如果top为空的话
 	if m.stackDirtyTop == nil || len(m.stackDirtyTop.a) <= 0 {
 		m.waitDirtyIncomingCh = make(chan struct{})
 		waitDirtyIncomingCh = m.waitDirtyIncomingCh
@@ -252,6 +258,8 @@ func (m *collection) mergerWaitForWork(pings []ping) (
 
 // mergerMain() is a helper method that performs the merging work on
 // the stackDirtyMid and swaps the merged result into the collection.
+
+// 进行mid层的merge
 func (m *collection) mergerMain(stackDirtyMid, stackDirtyBase *segmentStack,
 	mergeAll bool) (ok bool) {
 	if stackDirtyMid != nil && !stackDirtyMid.isEmpty() {
@@ -276,7 +284,7 @@ func (m *collection) mergerMain(stackDirtyMid, stackDirtyBase *segmentStack,
 		atomic.AddUint64(&m.stats.TotMergerInternalEnd, 1)
 
 		stackDirtyMid.Close()
-
+		// 替换mid成新合并后的dirtyMid
 		mergedStackDirtyMid.addRef()
 		stackDirtyMid = mergedStackDirtyMid
 
@@ -321,16 +329,17 @@ func (m *collection) mergerMain(stackDirtyMid, stackDirtyBase *segmentStack,
 // mergerNotifyPersister() is a helper method that notifies the
 // optional persister goroutine that there's a dirty segment stack
 // that needs persistence.
+// 通知持久化线程
 func (m *collection) mergerNotifyPersister() {
 	if m.options.LowerLevelUpdate == nil {
 		return
 	}
 
 	m.m.Lock()
-
+	// dirtyBase为空、dirtyMid不为空，需要将mid搬移到base
 	if m.stackDirtyBase == nil && m.stackDirtyMid != nil {
 		atomic.AddUint64(&m.stats.TotMergerLowerLevelNotify, 1)
-
+		// 把mid移动到base去
 		m.stackDirtyBase = m.stackDirtyMid
 		m.stackDirtyMid = nil
 
@@ -344,7 +353,7 @@ func (m *collection) mergerNotifyPersister() {
 			close(m.waitDirtyOutgoingCh)
 		}
 		m.waitDirtyOutgoingCh = make(chan struct{})
-
+		// 最后通知
 		m.stackDirtyBaseCond.Broadcast()
 	} else {
 		atomic.AddUint64(&m.stats.TotMergerLowerLevelNotifySkip, 1)

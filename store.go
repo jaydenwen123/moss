@@ -143,6 +143,7 @@ func (s *Store) persist(higher Snapshot, persistOptions StorePersistOptions) (
 	}
 
 	// Recursively load all segments of the newly persisted footer.
+	// 加载所有最新的持久化segment，并做mmap映射
 	err = footer.loadSegments(s.options, fref)
 	if err != nil {
 		return nil, err
@@ -453,7 +454,7 @@ func checkHeader(file File) error {
 }
 
 // --------------------------------------------------------
-
+// 一个segment对应一个SegmentLoc
 func (s *Store) persistSegment(file File, segIn Segment,
 	options *StoreOptions) (rv SegmentLoc, err error) {
 	segPersister, ok := segIn.(SegmentPersister)
@@ -653,6 +654,7 @@ func (s *Store) openCollection(
 	co.LowerLevelUpdate = func(higher Snapshot) (Snapshot, error) {
 		var ss Snapshot
 		var erro error
+		// 把higher持久化，传进来的是base
 		ss, erro = s.Persist(higher, persistOptions)
 		if erro != nil {
 			return nil, erro

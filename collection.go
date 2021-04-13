@@ -340,6 +340,7 @@ func (m *collection) ExecuteBatch(bIn Batch,
 
 	m.m.Lock()
 
+	// 确保DirtyTop有空间可以容纳
 	for m.stackDirtyTop != nil &&
 		len(m.stackDirtyTop.a) >= maxPreMergerBatches {
 		if m.isClosed() {
@@ -351,6 +352,7 @@ func (m *collection) ExecuteBatch(bIn Batch,
 			go b.RequestSort() // While waiting, might as well sort.
 		}
 
+		// 合并完成 ，唤醒阻塞在top的线程
 		atomic.AddUint64(&m.stats.TotExecuteBatchWaitBeg, 1)
 		m.stackDirtyTopCond.Wait()
 		atomic.AddUint64(&m.stats.TotExecuteBatchWaitEnd, 1)
@@ -363,9 +365,12 @@ func (m *collection) ExecuteBatch(bIn Batch,
 
 	m.invalidateLatestSnapshotLOCKED()
 
+	// 新的stackDirtyTop
 	stackDirtyTop := m.buildStackDirtyTop(b, m.stackDirtyTop)
 
+	// 旧的
 	prevStackDirtyTop := m.stackDirtyTop
+	// 旧的top替换成新的
 	m.stackDirtyTop = stackDirtyTop
 
 	waitDirtyIncomingCh := m.waitDirtyIncomingCh
@@ -410,6 +415,7 @@ func (m *collection) buildStackDirtyTop(b *batch, curStackTop *segmentStack) (
 	}
 
 	rv = &segmentStack{options: m.options, refs: 1}
+	// 先追加当前的旧的segment
 	rv.a = make([]Segment, 0, numDirtyTop+1)
 	if curStackTop != nil {
 		rv.a = append(rv.a, curStackTop.a...)
@@ -418,6 +424,7 @@ func (m *collection) buildStackDirtyTop(b *batch, curStackTop *segmentStack) (
 	rv.incarNum = m.incarNum
 
 	if b != nil {
+		// 追加最新的segment
 		if b.Len() > 0 {
 			rv.a = append(rv.a, b.segment)
 		}
@@ -659,6 +666,9 @@ func (m *collection) get(key []byte, readOptions ReadOptions) ([]byte, error) {
 	// starting with the latest (stackDirtyTop), followed by
 	// stackDirtyMid, stackDirtyBase, stackClean, and if still not
 	// found look for it in the lowerLevelSnapshot.
+
+	// 查找顺序
+	// stackDirtyTop->stackDirtyMid->stackDirtyBase->stackClean->lowerLevelSnapshot
 	if stackDirtyTop != nil {
 		val, err = stackDirtyTop.Get(key, readOptionsSLL)
 	}
@@ -674,7 +684,7 @@ func (m *collection) get(key []byte, readOptions ReadOptions) ([]byte, error) {
 	if val == nil && err == nil && stackClean != nil {
 		val, err = stackClean.Get(key, readOptionsSLL)
 	}
-
+	// 从快照找
 	if lowerLevelSnapshot != nil {
 		if val == nil && err == nil {
 			val, err = lowerLevelSnapshot.Get(key, readOptions)

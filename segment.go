@@ -197,7 +197,7 @@ func (a *segment) Alloc(numBytes int) ([]byte, error) {
 	if numBytes > bufCap-bufLen {
 		return nil, ErrAllocTooLarge
 	}
-
+	// numBytes<=bufCap-bufLen
 	rv := a.buf[bufLen : bufLen+numBytes]
 
 	a.buf = a.buf[0 : bufLen+numBytes]
@@ -245,12 +245,15 @@ func (a *segment) Mutate(operation uint64, key, val []byte) error {
 }
 
 func (a *segment) mutate(operation uint64, key, val []byte) error {
+	// 目前的buf的位置
 	keyStart := len(a.buf)
 	a.buf = append(a.buf, key...)
+	// key的长度
 	keyLength := len(a.buf) - keyStart
 
 	valStart := len(a.buf)
 	a.buf = append(a.buf, val...)
+	// value的长度
 	valLength := len(a.buf) - valStart
 
 	return a.mutateEx(operation, keyStart, keyLength, valLength)
@@ -269,10 +272,12 @@ func (a *segment) mutateEx(operation uint64,
 		keyStart = 0
 	}
 
+	// 长度 8位 表示操作、24位表示key的长度、接着4位表示0，接着28位表示value的长度
 	opKlVl := encodeOpKeyLenValLen(operation, keyLength, valLength)
-
+	// 记录索引
 	a.kvs = append(a.kvs, opKlVl, uint64(keyStart))
 
+	// 更新几个统计值
 	switch operation {
 	case OperationSet:
 		a.totOperationSet++
@@ -398,6 +403,7 @@ func (a *segment) Cursor(startKeyInclusive []byte, endKeyExclusive []byte) (
 	return rv, nil
 }
 
+// 根据key来找value
 func (a *segment) Get(key []byte) (operation uint64, val []byte, err error) {
 	var pos int
 	pos, err = a.findKeyPos(key)
@@ -424,19 +430,20 @@ func (a *segment) searchIndex(key []byte) (int, int) {
 }
 
 func (a *segment) findKeyPos(key []byte) (int, error) {
+	// kvs是索引，已经有序(升序)，可以二分查找
 	kvs := a.kvs
 	buf := a.buf
 
 	if len(kvs) < 2 {
 		return -1, nil
 	}
-
 	startKeyLen := int((maskKeyLength & kvs[0]) >> 32)
 	startKeyBeg := int(kvs[1])
 	if startKeyBeg+startKeyLen > len(buf) {
 		return -1, ErrSegmentCorrupted
 	}
 	// If key smaller than smallest key, return early.
+	// 判断是否比第一个小
 	startCmp := bytes.Compare(key, buf[startKeyBeg:startKeyBeg+startKeyLen])
 	if startCmp < 0 {
 		return -1, nil
@@ -458,6 +465,7 @@ func (a *segment) findKeyPos(key []byte) (int, error) {
 		return -1, ErrSegmentCorrupted
 	}
 
+	// 二分查找
 	for i < j {
 		h := i + (j-i)/2 // Keep i <= h < j.
 		x := h * 2
@@ -497,6 +505,7 @@ func (a *segment) findStartKeyInclusivePos(startKeyInclusive []byte) int {
 		return i
 	}
 
+	// 二分查找
 	for i < j {
 		h := i + (j-i)/2 // Keep i <= h < j.
 		x := h * 2
@@ -520,11 +529,14 @@ func (a *segment) findStartKeyInclusivePos(startKeyInclusive []byte) int {
 func (a *segment) getOperationKeyVal(pos int) (uint64, []byte, []byte) {
 	x := pos * 2
 	if x < len(a.kvs) {
+		// 存储key和value的索引
 		opklvl := a.kvs[x]
 		kstart := int(a.kvs[x+1])
+		// 解析key、value
 		operation, keyLen, valLen := decodeOpKeyLenValLen(opklvl)
 		vstart := kstart + keyLen
 
+		// buf[kstart:vstart],buf[vstart:vstart+vlen]
 		return operation, a.buf[kstart:vstart], a.buf[vstart : vstart+valLen]
 	}
 
@@ -539,6 +551,7 @@ func encodeOpKeyLenValLen(operation uint64, keyLen, valLen int) uint64 {
 		(maskValLength & (uint64(valLen)))
 }
 
+// 前八位保存操作、中间的24位保存key的长度、隔一位为0，做区分、最后28位保存value的长度
 func decodeOpKeyLenValLen(opklvl uint64) (uint64, int, int) {
 	operation := maskOperation & opklvl
 	keyLen := int((maskKeyLength & opklvl) >> 32)
@@ -586,6 +599,7 @@ func (a *segment) RequestSort(synchronous bool) bool {
 func (a *segment) doSort() {
 	// After sorting, the segment is immutable and then safe for
 	// concurrent reads.
+	// 对索引排序
 	sort.Sort(a)
 
 	if !SkipStats {
@@ -680,6 +694,7 @@ func persistBasicSegment(
 	kvsPos := pageAlignCeil(pos)
 	bufPos := pageAlignCeil(kvsPos + int64(len(kvsBuf)))
 
+	// 实现并发写入
 	ioCh := make(chan ioResult)
 
 	go func() {
@@ -803,7 +818,7 @@ func (a *segment) buildIndex(quota int, minKeyBytes int) {
 }
 
 // ------------------------------------------------------
-
+// batch集成了segment。卧槽，看了半天，还在找实现
 type batch struct {
 	// A batch is a type of segment with childCollections.
 	*segment

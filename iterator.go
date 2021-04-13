@@ -27,7 +27,7 @@ var DefaultNaiveSeekToMaxTries = 100
 // heap.Interface on its cursors.
 type iterator struct {
 	ss *segmentStack
-
+	// 一个segment一个cursor
 	cursors []*cursor // The len(cursors) <= len(ss.a) (+1 when lowerLevelIter).
 
 	startKeyInclusive []byte
@@ -46,7 +46,7 @@ type iterator struct {
 // segmentStack.  An ssIndex < 0 and pos < 0 mean that the op/k/v came
 // from the lowerLevelIter.
 type cursor struct {
-	ssIndex int // Index into Iterator.ss.a.
+	ssIndex int // Index into Iterator.ss.a.，segment的index
 	sc      SegmentCursor
 
 	op uint64
@@ -131,6 +131,7 @@ func (ss *segmentStack) startIterator(
 
 	ss.ensureSorted(minSegmentLevel, maxSegmentLevel)
 
+	// 为每一个segment创建一个cursor
 	for ssIndex := minSegmentLevel; ssIndex <= maxSegmentLevel; ssIndex++ {
 		b := ss.a[ssIndex]
 
@@ -159,6 +160,7 @@ func (ss *segmentStack) startIterator(
 		ss.lowerLevelSnapshot != nil {
 		llss := ss.lowerLevelSnapshot.addRef()
 		if llss != nil {
+			// 创建低层级的快照的cursor
 			lowerLevelIter, err := llss.StartIterator(
 				startKeyInclusive, endKeyExclusive, IteratorOptions{})
 
@@ -192,7 +194,7 @@ func (ss *segmentStack) startIterator(
 
 	// ----------------------------------------------
 	// Heap-ify the cursors.
-
+	// 对cursors建立堆
 	heap.Init(iter)
 
 	if !iteratorOptions.IncludeDeletions {

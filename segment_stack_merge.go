@@ -26,6 +26,7 @@ func (ss *segmentStack) calcTargetTopLevel() int {
 	maxTopLevel := len(ss.a) - 2
 
 	for newTopLevel < maxTopLevel {
+		// 元素的个数
 		numX0 := ss.a[newTopLevel].Len()
 		numX1 := ss.a[newTopLevel+1].Len()
 		if (float64(numX1) / float64(numX0)) > minMergePercentage {
@@ -42,6 +43,7 @@ func (ss *segmentStack) calcTargetTopLevel() int {
 
 // merge() returns a new segmentStack, merging all the segments that
 // are at the given newTopLevel and higher.
+// 主要用来merge
 func (ss *segmentStack) merge(mergeAll bool, base *segmentStack) (
 	*segmentStack, uint64, error) {
 	newTopLevel := 0
@@ -60,6 +62,7 @@ func (ss *segmentStack) merge(mergeAll bool, base *segmentStack) (
 
 	var totOps int
 	var totKeyBytes, totValBytes uint64
+	// 将topLevel~topLen的segment进行合并
 	for i := newTopLevel; i < len(ss.a); i++ {
 		totOps += ss.a[i].Len()
 		nk, nv := ss.a[i].NumKeyValBytes()
@@ -69,18 +72,19 @@ func (ss *segmentStack) merge(mergeAll bool, base *segmentStack) (
 
 	// ----------------------------------------------------
 	// Next, use an iterator for the actual merge.
-
+	// 创建一个新段
 	mergedSegment, err := newSegment(totOps, int(totKeyBytes+totValBytes))
 	if err != nil {
 		return nil, 0, err
 	}
-
+	// newTopLevel~len(ss.a)合并到mergedSegment中
 	err = ss.mergeInto(newTopLevel, len(ss.a), mergedSegment, base, true,
 		true, nil)
 	if err != nil {
 		return nil, 0, err
 	}
 
+	// 最后将新的segment加入
 	a := make([]Segment, 0, newTopLevel+1)
 	a = append(a, ss.a[0:newTopLevel]...)
 	a = append(a, mergedSegment)
@@ -134,7 +138,7 @@ func (ss *segmentStack) merge(mergeAll bool, base *segmentStack) (
 
 	return rv, numFullMerges, nil
 }
-
+// 将minSegmenttLevel~maxSegmentHeight 的segment合并到dest中
 func (ss *segmentStack) mergeInto(minSegmentLevel, maxSegmentHeight int,
 	dest SegmentMutator, base *segmentStack, includeDeletions, optimizeTail bool,
 	cancelCh chan struct{}) error {
@@ -160,6 +164,7 @@ func (ss *segmentStack) mergeInto(minSegmentLevel, maxSegmentHeight int,
 
 OUTER:
 	for i := 0; true; i++ {
+		// 取消检查
 		if cancelCh != nil && i%cancelCheckEvery == 0 {
 			select {
 			case <-cancelCh:
@@ -185,8 +190,10 @@ OUTER:
 
 			var op uint64
 			var k, v []byte
+			// 从cursor中拿到数据，然后插入到dest中
 			op, k, v = cursor.sc.Current()
 			for op != 0 {
+				// 插入到新的dest中
 				err = dest.Mutate(op, k, v)
 				if err != nil {
 					return err

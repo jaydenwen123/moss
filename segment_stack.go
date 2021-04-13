@@ -20,6 +20,8 @@ import (
 // in the stack have higher precedence, and should "shadow" any
 // entries of the same key from lower in the stack.  A segmentStack
 // implements the Snapshot interface.
+
+// segmentStack其实就是一个section
 type segmentStack struct {
 	options *CollectionOptions
 	stats   *CollectionStats
@@ -73,6 +75,7 @@ func (ss *segmentStack) Close() error {
 
 // ------------------------------------------------------
 
+// 从栈顶元素里取元素
 // Get retrieves a val from a segmentStack.
 func (ss *segmentStack) Get(key []byte, readOptions ReadOptions) ([]byte, error) {
 	return ss.get(key, len(ss.a)-1, nil, readOptions)
@@ -88,17 +91,20 @@ func (ss *segmentStack) get(key []byte, segStart int, base *segmentStack,
 		ss.ensureSorted(0, segStart)
 
 		for seg := segStart; seg >= 0; seg-- {
+			// 取到Segment
 			b := ss.a[seg]
-
+			// 从segment中查询key
 			op, val, err := b.Get(key)
 			if err != nil {
 				return nil, err
 			}
 			if val != nil {
+				// 删除了
 				if op == OperationDel {
 					return nil, nil
 				}
 				if op == OperationMerge {
+					// 取seg-1层的值
 					return ss.getMerged(key, val, seg-1, base, readOptions)
 				}
 				return val, nil
@@ -121,6 +127,7 @@ func (ss *segmentStack) get(key []byte, segStart int, base *segmentStack,
 
 // getMerged() retrieves a lower level val for a given key and returns
 // a merged val, based on the configured merge operator.
+// 合并所有的val，通通过合并操作符连接
 func (ss *segmentStack) getMerged(key, val []byte, segStart int,
 	base *segmentStack, readOptions ReadOptions) ([]byte, error) {
 	var mo MergeOperator
@@ -130,7 +137,7 @@ func (ss *segmentStack) getMerged(key, val []byte, segStart int,
 	if mo == nil {
 		return nil, ErrMergeOperatorNil
 	}
-
+	// 先获得低层级的value
 	vLower, err := ss.get(key, segStart, base, readOptions)
 	if err != nil {
 		return nil, err
@@ -145,7 +152,7 @@ func (ss *segmentStack) getMerged(key, val []byte, segStart int,
 }
 
 // ------------------------------------------------------
-
+// 确保这一段有序
 func (ss *segmentStack) ensureSorted(minSeg, maxSeg int) {
 	if ss.options == nil || !ss.options.DeferredSort {
 		return

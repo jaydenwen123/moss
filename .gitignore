@@ -4,3 +4,4 @@
 *.out
 *-fuzz.zip
 workdir
+.idea/

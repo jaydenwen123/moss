@@ -49,6 +49,7 @@ func (s *Store) persistFooter(file File, footer *Footer,
 	return err
 }
 
+// 二进制写入Footer
 func (s *Store) persistFooterUnsynced(file File, footer *Footer) error {
 	jBuf, err := json.Marshal(footer)
 	if err != nil {
@@ -66,6 +67,7 @@ func (s *Store) persistFooterUnsynced(file File, footer *Footer) error {
 	footerBuf := bytes.NewBuffer(make([]byte, 0, footerLen))
 	footerBuf.Write(StoreMagicBeg)
 	footerBuf.Write(StoreMagicBeg)
+	// version+footerLen+footerData+footerPos+footerLen
 	binary.Write(footerBuf, StoreEndian, uint32(StoreVersion))
 	binary.Write(footerBuf, StoreEndian, uint32(footerLen))
 	footerBuf.Write(jBuf)
@@ -244,6 +246,7 @@ func ScanFooter(options *StoreOptions, fref *FileRef, fileName string,
 // state on error.
 func (f *Footer) loadSegments(options *StoreOptions, fref *FileRef) (err error) {
 	// Track mrefs that we need to DecRef() if there's an error.
+	// 多少个segment就对应多少个mrefs
 	mrefs := make([]*mmapRef, 0, len(f.SegmentLocs))
 	mrefs, err = f.doLoadSegments(options, fref, mrefs)
 	if err != nil {
@@ -256,6 +259,7 @@ func (f *Footer) loadSegments(options *StoreOptions, fref *FileRef) (err error) 
 	return nil
 }
 
+// 做mmap映射
 func (f *Footer) doLoadSegments(options *StoreOptions, fref *FileRef,
 	mrefs []*mmapRef) (mrefsSoFar []*mmapRef, err error) {
 	// Recursively load the childFooters first.
